@@ -6,6 +6,159 @@ interface Question {
   options: string[];
 }
 
+describe("Survey init", () => {
+  const title = "막무가내 설문조사라면";
+  const description =
+    "중앙화된 설문조사로서, 모든 데이터는 공개되지 않으며 설문조사를 게시한자만 볼 수 있습니다.";
+  const questions: Question[] = [
+    {
+      question: "누가 내 응답을 관리할때 더 솔직할 수 있을까요?",
+      options: [
+        "구글폼 운영자",
+        "탈중앙화된 블록체인 (관리주체 없으며 모든 데이터 공개)",
+        "상관없음",
+      ],
+    },
+  ];
+
+  const getSurveyContractAndEthers = async (
+    survey: {
+      title: string;
+      description: string;
+      targetNumber: number;
+      questions: Question[];
+    },
+    value = 0n,
+  ) => {
+    const { ethers } = await network.connect();
+    const cSurvey = await ethers.deployContract(
+      "Survey",
+      [survey.title, survey.description, survey.targetNumber, survey.questions],
+      { value },
+    );
+    await cSurvey.waitForDeployment();
+    return { ethers, cSurvey };
+  };
+  const survey = { title, description, targetNumber: 3, questions };
+
+  describe("Deployment", () => {
+    it("should store survey info correctly", async () => {
+      const { cSurvey } = await getSurveyContractAndEthers(survey);
+      expect(await cSurvey.title()).to.equal(title);
+      expect(await cSurvey.description()).to.equal(description);
+      expect(await cSurvey.targetNumber()).to.equal(3n);
+      expect(await cSurvey.getAnswers()).to.deep.equal([]);
+    });
+
+    it("should calculate rewardAmount correctly", async () => {
+      // Include a remainder to verify Solidity's integer division.
+      const pool = 10n ** 18n;
+      const { ethers, cSurvey } = await getSurveyContractAndEthers(
+        survey,
+        pool,
+      );
+      expect(await cSurvey.rewardAmount()).to.equal(pool / 3n);
+      expect(
+        await ethers.provider.getBalance(await cSurvey.getAddress()),
+      ).to.equal(pool);
+      const { cSurvey: unfundedSurvey } =
+        await getSurveyContractAndEthers(survey);
+      expect(await unfundedSurvey.rewardAmount()).to.equal(0n);
+    });
+  });
+
+  describe("Questions and Answers", () => {
+    it("should return questions correctly", async () => {
+      const secondQuestion: Question = {
+        question: "다음 설문에도 참여하시겠습니까?",
+        options: ["예", "아니요"],
+      };
+      const expected = [...questions, secondQuestion];
+      const { cSurvey } = await getSurveyContractAndEthers({
+        ...survey,
+        questions: expected,
+      });
+      const stored = await cSurvey.getQuestions();
+      expect(
+        stored.map((q) => ({ question: q.question, options: [...q.options] })),
+      ).to.deep.equal(expected);
+    });
+
+    it("should allow valid answer submission", async () => {
+      const { ethers, cSurvey } = await getSurveyContractAndEthers(survey);
+      const [, respondent] = await ethers.getSigners();
+      await (
+        await cSurvey.connect(respondent).submitAnswer({
+          respondent: respondent.address,
+          answers: [1],
+        })
+      ).wait();
+      const stored = await cSurvey.getAnswers();
+      expect(stored).to.have.lengthOf(1);
+      expect(stored[0].respondent).to.equal(respondent.address);
+      expect([...stored[0].answers]).to.deep.equal([1n]);
+    });
+
+    it("should revert if answer length mismatch", async () => {
+      const { ethers, cSurvey } = await getSurveyContractAndEthers(survey);
+      const [, respondent] = await ethers.getSigners();
+      for (const answers of [[], [0, 1]]) {
+        await expect(
+          cSurvey.connect(respondent).submitAnswer({
+            respondent: respondent.address,
+            answers,
+          }),
+        ).to.be.revertedWith("Mismatched answers length");
+      }
+      expect(await cSurvey.getAnswers()).to.deep.equal([]);
+    });
+
+    it("should revert if target reached", async () => {
+      const { ethers, cSurvey } = await getSurveyContractAndEthers({
+        ...survey,
+        targetNumber: 1,
+      });
+      const [, first, second] = await ethers.getSigners();
+      await (
+        await cSurvey.connect(first).submitAnswer({
+          respondent: first.address,
+          answers: [0],
+        })
+      ).wait();
+      await expect(
+        cSurvey.connect(second).submitAnswer({
+          respondent: second.address,
+          answers: [1],
+        }),
+      ).to.be.revertedWith("This survey has been ended");
+      const stored = await cSurvey.getAnswers();
+      expect(stored).to.have.lengthOf(1);
+      expect(stored[0].respondent).to.equal(first.address);
+    });
+  });
+
+  describe("Rewards", () => {
+    it("should pay correct reward to respondent", async () => {
+      const pool = 10n ** 18n;
+      const { ethers, cSurvey } = await getSurveyContractAndEthers(
+        survey,
+        pool,
+      );
+      const [, respondent] = await ethers.getSigners();
+      const reward = pool / BigInt(survey.targetNumber);
+      await expect(
+        cSurvey.connect(respondent).submitAnswer({
+          respondent: respondent.address,
+          answers: [1],
+        }),
+      ).to.changeEtherBalances(ethers, [cSurvey, respondent], [-reward, reward]);
+      expect(
+        await ethers.provider.getBalance(await cSurvey.getAddress()),
+      ).to.equal(pool - reward);
+    });
+  });
+});
+
 it("Survey storage layout", async () => {
   const { ethers } = await network.connect();
 

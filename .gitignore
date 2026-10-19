@@ -10,6 +10,9 @@
 # Hardhat Build Artifacts
 /artifacts
 
+# Local deployment output (keep reusable ignition/modules sources)
+/ignition/deployments
+
 # Hardhat compilation (v2) support directory
 /cache
 
