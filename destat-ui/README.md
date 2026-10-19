@@ -1,4 +1,19 @@
-# Welcome to React Router!
+# DESTAT UI
+
+## Wallet connection
+
+- Run `npm ci` and `npm run dev`, then open `/profile/survey`.
+- Click **Connect**, select **MetaMask**, and approve the connection in the extension.
+- The button displays the connected address; **Disconnect** clears the connection.
+- Hardhat (chain ID 31337, `http://127.0.0.1:8545`) and Sepolia are configured.
+- Copy `.env.example` to `.env` for optional configuration. MetaMask extension
+  connections need no WalletConnect key. To enable mobile WalletConnect, set
+  `VITE_WALLETCONNECT_PROJECT_ID` to your own project ID and restart the dev server.
+- Supabase settings are optional for the initial dashboard and My Survey screen.
+- Validate with `npm run typecheck` and `npm run build`.
+
+The Connect button calls `rabbykit.open()` through a browser-only module to
+keep server rendering safe. Setup follows the [official RabbyKit documentation](https://rabbykit.rabby.io/docs/install/).
 
 A modern, production-ready template for building full-stack React applications using React Router.
 
